@@ -1,10 +1,11 @@
 pub mod default;
+pub mod default_custom;
 pub mod default_evil;
 pub mod macros;
 
 pub use crate::commands::MappableCommand;
 pub use default::default;
-pub use default_evil::default_evil;
+pub use default_custom::default_evil;
 
 use arc_swap::{
     access::{DynAccess, DynGuard},

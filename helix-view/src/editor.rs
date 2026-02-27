@@ -583,7 +583,7 @@ impl Default for LspConfig {
     fn default() -> Self {
         Self {
             enable: true,
-            display_progress_messages: false,
+            display_progress_messages: true,
             display_messages: true,
             auto_signature_help: true,
             display_signature_help_docs: true,
@@ -833,11 +833,11 @@ impl Default for CursorShapeConfig {
 #[serde(rename_all = "kebab-case")]
 pub enum BufferLine {
     /// Don't render bufferline
-    #[default]
     Never,
     /// Always render
     Always,
     /// Only if multiple buffers are open
+    #[default]
     Multiple,
 }
 
@@ -1141,7 +1141,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             evil: false,
-            scrolloff: 5,
+            scrolloff: 28,
             scroll_lines: 3,
             mouse: true,
             mouse_yank_register: '*',
@@ -1150,7 +1150,7 @@ impl Default for Config {
             } else {
                 vec!["sh".to_owned(), "-c".to_owned()]
             },
-            line_number: LineNumber::Absolute,
+            line_number: LineNumber::Relative,
             cursorline: false,
             cursorcolumn: false,
             gutters: GutterConfig::default(),
@@ -1160,12 +1160,12 @@ impl Default for Config {
             path_completion: true,
             word_completion: WordCompletion::default(),
             auto_format: true,
-            default_yank_register: '"',
+            default_yank_register: '+',
             auto_save: AutoSave::default(),
             idle_timeout: Duration::from_millis(250),
             completion_timeout: Duration::from_millis(250),
             preview_completion_insert: true,
-            completion_trigger_len: 2,
+            completion_trigger_len: 1,
             auto_info: true,
             file_picker: FilePickerConfig::default(),
             file_explorer: FileExplorerConfig::default(),
@@ -1180,20 +1180,20 @@ impl Default for Config {
             whitespace: WhitespaceConfig::default(),
             bufferline: BufferLine::default(),
             indent_guides: IndentGuidesConfig::default(),
-            color_modes: false,
+            color_modes: true,
             soft_wrap: SoftWrap {
-                enable: Some(false),
+                enable: Some(true),
                 ..SoftWrap::default()
             },
             text_width: 80,
             completion_replace: false,
-            continue_comments: true,
+            continue_comments: false,
             workspace_lsp_roots: Vec::new(),
             default_line_ending: LineEndingConfig::default(),
             insert_final_newline: true,
             atomic_save: true,
-            trim_final_newlines: false,
-            trim_trailing_whitespace: false,
+            trim_final_newlines: true,
+            trim_trailing_whitespace: true,
             smart_tab: Some(SmartTabConfig::default()),
             popup_border: PopupBorderConfig::None,
             indent_heuristic: IndentationHeuristic::default(),
