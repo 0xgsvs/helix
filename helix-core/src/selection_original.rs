@@ -632,19 +632,6 @@ impl Selection {
         selection.normalize()
     }
 
-    pub fn evil_new_no_normalize(ranges: SmallVec<[Range; 1]>, primary_index: usize) -> Self {
-        // Copy/paste of `new`, without the call to `normalize`.
-        assert!(!ranges.is_empty());
-        debug_assert!(primary_index < ranges.len());
-
-        let selection = Self {
-            ranges,
-            primary_index,
-        };
-
-        selection
-    }
-
     /// Takes a closure and maps each `Range` over the closure.
     pub fn transform<F>(mut self, mut f: F) -> Self
     where
@@ -654,17 +641,6 @@ impl Selection {
             *range = f(*range)
         }
         self.normalize()
-    }
-
-    pub fn evil_transform_no_normalize<F>(mut self, mut f: F) -> Self
-    where
-        F: FnMut(Range) -> Range,
-    {
-        // Copy/paste of `transform`, without the call to `normalize`.
-        for range in self.ranges.iter_mut() {
-            *range = f(*range)
-        }
-        self
     }
 
     /// Takes a closure and maps each `Range` over the closure to multiple `Range`s.
@@ -686,11 +662,6 @@ impl Selection {
     pub fn ensure_invariants(self, text: RopeSlice) -> Self {
         self.transform(|r| r.min_width_1(text).grapheme_aligned(text))
             .normalize()
-    }
-
-    pub fn evil_ensure_invariants_no_normalize(self, text: RopeSlice) -> Self {
-        // Copy/paste of `ensure_invariants`, without the call to `normalize`.
-        self.evil_transform_no_normalize(|r| r.min_width_1(text).grapheme_aligned(text))
     }
 
     /// Transforms the selection into all of the left-side head positions,
@@ -1194,68 +1165,6 @@ mod test {
             ),
             Some(Selection::new(
                 smallvec![Range::point(12), Range::new(13, 30), Range::new(31, 36)],
-                0
-            ))
-        );
-    }
-
-    #[test]
-    fn test_select_on_matches_crlf() {
-        let r = Rope::from_str("This\r\nString\r\n\r\ncontains multiple\r\nlines");
-        let s = r.slice(..);
-
-        let start_of_line = rope::RegexBuilder::new()
-            .syntax(rope::Config::new().multi_line(true).crlf(true))
-            .build(r"^")
-            .unwrap();
-        let end_of_line = rope::RegexBuilder::new()
-            .syntax(rope::Config::new().multi_line(true).crlf(true))
-            .build(r"$")
-            .unwrap();
-
-        // line without ending
-        assert_eq!(
-            select_on_matches(s, &Selection::single(0, 4), &start_of_line),
-            Some(Selection::single(0, 0))
-        );
-        assert_eq!(
-            select_on_matches(s, &Selection::single(0, 4), &end_of_line),
-            None
-        );
-        // line with ending
-        assert_eq!(
-            select_on_matches(s, &Selection::single(0, 5), &start_of_line),
-            Some(Selection::single(0, 0))
-        );
-        assert_eq!(
-            select_on_matches(s, &Selection::single(0, 5), &end_of_line),
-            Some(Selection::single(4, 4))
-        );
-        // line with start of next line
-        assert_eq!(
-            select_on_matches(s, &Selection::single(0, 7), &start_of_line),
-            Some(Selection::new(
-                smallvec![Range::point(0), Range::point(6)],
-                0
-            ))
-        );
-        assert_eq!(
-            select_on_matches(s, &Selection::single(0, 6), &end_of_line),
-            Some(Selection::single(4, 4))
-        );
-
-        // multiple lines
-        assert_eq!(
-            select_on_matches(
-                s,
-                &Selection::single(0, s.len_chars()),
-                &rope::RegexBuilder::new()
-                    .syntax(rope::Config::new().multi_line(true).crlf(true))
-                    .build(r"^[a-z ]*$")
-                    .unwrap()
-            ),
-            Some(Selection::new(
-                smallvec![Range::point(14), Range::new(16, 33), Range::new(35, 40)],
                 0
             ))
         );

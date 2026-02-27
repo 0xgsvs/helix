@@ -15,7 +15,6 @@ use crate::{
     Document, DocumentId, View, ViewId,
 };
 use helix_event::dispatch;
-use helix_loader::workspace_trust::TrustStatus;
 use helix_vcs::DiffProviderRegistry;
 
 use futures_util::stream::select_all::SelectAll;
@@ -26,7 +25,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use std::{
     borrow::Cow,
     cell::Cell,
-    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     io::{self, stdin},
     num::{NonZeroU8, NonZeroUsize},
@@ -63,7 +62,6 @@ use arc_swap::{
     ArcSwap,
 };
 
-pub const DIR_STACK_CAP: usize = 10;
 pub const DEFAULT_AUTO_SAVE_DELAY: u64 = 3000;
 
 fn deserialize_duration_millis<'de, D>(deserializer: D) -> Result<Duration, D::Error>
@@ -294,16 +292,12 @@ where
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct Config {
-    /// Vim keybindings and behavior. Defaults to true.
-    pub evil: bool,
     /// Padding to keep between the edge of the screen and the cursor when scrolling. Defaults to 5.
     pub scrolloff: usize,
     /// Number of lines to scroll at once. Defaults to 3
     pub scroll_lines: isize,
     /// Mouse support. Defaults to true.
     pub mouse: bool,
-    /// Which register to use for mouse yank.
-    pub mouse_yank_register: char,
     /// Shell to use for shell commands. Defaults to ["cmd", "/C"] on Windows and ["sh", "-c"] otherwise.
     pub shell: Vec<String>,
     /// Line number mode.
@@ -434,8 +428,6 @@ pub struct Config {
     /// Whether to enable Kitty Keyboard Protocol
     pub kitty_keyboard_protocol: KittyKeyboardProtocolConfig,
     pub buffer_picker: BufferPickerConfig,
-    /// Whether to implicitly trust every workspace or not
-    pub insecure: bool,
 }
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Clone, Copy)]
@@ -484,15 +476,6 @@ impl Default for SmartTabConfig {
     fn default() -> Self {
         SmartTabConfig {
             enable: true,
-            supersede_menu: false,
-        }
-    }
-}
-
-impl SmartTabConfig {
-    pub fn default_evil() -> Self {
-        SmartTabConfig {
-            enable: false,
             supersede_menu: false,
         }
     }
@@ -566,8 +549,6 @@ pub struct LspConfig {
     pub display_signature_help_docs: bool,
     /// Display inlay hints
     pub display_inlay_hints: bool,
-    /// Automatically highlight symbol references at the cursor.
-    pub auto_document_highlight: bool,
     /// Maximum displayed length of inlay hints (excluding the added trailing `…`).
     /// If it's `None`, there's no limit
     pub inlay_hints_length_limit: Option<NonZeroU8>,
@@ -588,7 +569,6 @@ impl Default for LspConfig {
             auto_signature_help: true,
             display_signature_help_docs: true,
             display_inlay_hints: false,
-            auto_document_highlight: false,
             inlay_hints_length_limit: None,
             snippets: true,
             goto_reference_include_declaration: true,
@@ -646,33 +626,6 @@ impl Default for StatusLineConfig {
     }
 }
 
-impl StatusLineConfig {
-    pub fn default_evil() -> Self {
-        use StatusLineElement as E;
-
-        Self {
-            left: vec![E::Mode, E::Spacer, E::VersionControl, E::Spacer, E::Spinner],
-            center: vec![
-                E::FileName,
-                E::ReadOnlyIndicator,
-                E::FileModificationIndicator,
-            ],
-            right: vec![
-                E::Diagnostics,
-                E::Selections,
-                E::Register,
-                E::Position,
-                E::FileEncoding,
-                E::FileType,
-            ],
-            separator: String::from("│"),
-            mode: ModeConfig::default_evil(),
-            diagnostics: vec![Severity::Warning, Severity::Error],
-            workspace_diagnostics: vec![Severity::Warning, Severity::Error],
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct ModeConfig {
@@ -687,16 +640,6 @@ impl Default for ModeConfig {
             normal: String::from("NOR"),
             insert: String::from("INS"),
             select: String::from("SEL"),
-        }
-    }
-}
-
-impl ModeConfig {
-    pub fn default_evil() -> Self {
-        Self {
-            normal: String::from("NOR"),
-            insert: String::from("INS"),
-            select: String::from("VIS"),
         }
     }
 }
@@ -1140,11 +1083,9 @@ impl Default for WordCompletion {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            evil: false,
             scrolloff: 5,
             scroll_lines: 3,
             mouse: true,
-            mouse_yank_register: '*',
             shell: if cfg!(windows) {
                 vec!["cmd".to_owned(), "/C".to_owned()]
             } else {
@@ -1205,20 +1146,7 @@ impl Default for Config {
             rainbow_brackets: false,
             kitty_keyboard_protocol: Default::default(),
             buffer_picker: BufferPickerConfig::default(),
-            insecure: false,
         }
-    }
-}
-
-impl Config {
-    pub fn default_evil() -> Self {
-        let mut config = Config::default();
-        config.evil = true;
-        config.statusline = StatusLineConfig::default_evil();
-        config.color_modes = true;
-        config.insert_final_newline = false;
-        config.smart_tab = Some(SmartTabConfig::default_evil());
-        return config;
     }
 }
 
@@ -1248,25 +1176,7 @@ use futures_util::stream::{Flatten, Once};
 
 type Diagnostics = BTreeMap<Uri, Vec<(lsp::Diagnostic, DiagnosticProvider)>>;
 
-#[derive(Copy, Clone)]
-pub enum EvilSelectMode {
-    CharacterWise,
-    LineWise,
-    //BlockWise,
-}
-
-impl std::fmt::Display for EvilSelectMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::CharacterWise => f.write_str(""),
-            Self::LineWise => f.write_str("LINE"),
-        }
-    }
-}
-
 pub struct Editor {
-    pub evil_select_mode: EvilSelectMode,
-
     /// Current editing mode.
     pub mode: Mode,
     pub tree: Tree,
@@ -1315,8 +1225,7 @@ pub struct Editor {
     redraw_timer: Pin<Box<Sleep>>,
     last_motion: Option<Motion>,
     pub last_completion: Option<CompleteAction>,
-    pub last_cwd: Option<PathBuf>,
-    pub dir_stack: VecDeque<PathBuf>,
+    last_cwd: Option<PathBuf>,
 
     pub exit_code: i32,
 
@@ -1356,7 +1265,6 @@ pub enum EditorEvent {
 pub enum ConfigEvent {
     Refresh,
     Update(Box<Config>),
-    ThemeChanged,
 }
 
 enum ThemeAction {
@@ -1420,7 +1328,6 @@ impl Editor {
         area.height -= 1;
 
         Self {
-            evil_select_mode: EvilSelectMode::CharacterWise,
             mode: Mode::Normal,
             tree: Tree::new(area),
             next_document_id: DocumentId::default(),
@@ -1461,7 +1368,6 @@ impl Editor {
             handlers,
             mouse_down_range: None,
             cursor_cache: CursorCache::default(),
-            dir_stack: VecDeque::with_capacity(DIR_STACK_CAP),
         }
     }
 
@@ -1564,26 +1470,26 @@ impl Editor {
             .unwrap_or(false)
     }
 
-    pub fn unset_theme_preview(&mut self) -> anyhow::Result<()> {
+    pub fn unset_theme_preview(&mut self) {
         if let Some(last_theme) = self.last_theme.take() {
-            self.set_theme(last_theme)?;
+            self.set_theme(last_theme);
         }
         // None likely occurs when the user types ":theme" and then exits before previewing
-        Ok(())
     }
 
-    pub fn set_theme_preview(&mut self, theme: Theme) -> anyhow::Result<()> {
-        self.set_theme_impl(theme, ThemeAction::Preview)
+    pub fn set_theme_preview(&mut self, theme: Theme) {
+        self.set_theme_impl(theme, ThemeAction::Preview);
     }
 
-    pub fn set_theme(&mut self, theme: Theme) -> anyhow::Result<()> {
-        self.set_theme_impl(theme, ThemeAction::Set)
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.set_theme_impl(theme, ThemeAction::Set);
     }
 
-    fn set_theme_impl(&mut self, theme: Theme, preview: ThemeAction) -> anyhow::Result<()> {
+    fn set_theme_impl(&mut self, theme: Theme, preview: ThemeAction) {
         // `ui.selection` is the only scope required to be able to render a theme.
         if theme.find_highlight_exact("ui.selection").is_none() {
-            bail!("Invalid theme: `ui.selection` required");
+            self.set_error("Invalid theme: `ui.selection` required");
+            return;
         }
 
         let scopes = theme.scopes();
@@ -1602,9 +1508,6 @@ impl Editor {
         }
 
         self._refresh();
-        self.config_events.0.send(ConfigEvent::ThemeChanged)?;
-
-        Ok(())
     }
 
     #[inline]
@@ -1717,7 +1620,7 @@ impl Editor {
     }
 
     /// Launch a language server for a given document
-    pub fn launch_language_servers(&mut self, doc_id: DocumentId) {
+    fn launch_language_servers(&mut self, doc_id: DocumentId) {
         if !self.config().lsp.enable {
             return;
         }
@@ -1731,15 +1634,6 @@ impl Editor {
         let (lang, path) = (doc.language.clone(), doc.path().cloned());
         let config = doc.config.load();
         let root_dirs = &config.workspace_lsp_roots;
-
-        if let TrustStatus::Untrusted =
-            helix_loader::workspace_trust::quick_query_workspace(self.config.load().insecure)
-        {
-            self.set_status(
-                "Current workspace is not trusted. Run `:workspace-trust` to enable all features.",
-            );
-            return;
-        };
 
         // store only successfully started language servers
         let language_servers = lang.as_ref().map_or_else(HashMap::default, |language| {
