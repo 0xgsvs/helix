@@ -687,6 +687,8 @@ impl MappableCommand {
         evil_cursor_backward_search, "Search backward for the word near cursor (evil)",
         evil_goto_line_or_first_line, "Goto first line (evil)",
         evil_goto_line_or_last_line, "Goto last line (evil)",
+        evil_goto_word, "Goto word (evil)",
+        evil_extend_to_word, "Extend to word (evil)",
         evil_characterwise_select_mode, "Enter/exit characterwise select mode",
         evil_linewise_select_mode, "Enter/exit linewise select mode",
         command_palette, "Open command palette",
@@ -7237,14 +7239,27 @@ fn replay_macro(cx: &mut Context) {
 }
 
 fn goto_word(cx: &mut Context) {
-    jump_to_word(cx, Movement::Move)
+    jump_to_word(cx, Movement::Move, false)
 }
 
 fn extend_to_word(cx: &mut Context) {
-    jump_to_word(cx, Movement::Extend)
+    jump_to_word(cx, Movement::Extend, false)
 }
 
-fn jump_to_label(cx: &mut Context, labels: Vec<Range>, behaviour: Movement) {
+fn evil_goto_word(cx: &mut Context) {
+    jump_to_word(cx, Movement::Move, true)
+}
+
+fn evil_extend_to_word(cx: &mut Context) {
+    jump_to_word(cx, Movement::Extend, true)
+}
+
+fn jump_to_label(
+    cx: &mut Context,
+    labels: Vec<Range>,
+    behaviour: Movement,
+    enter_select_mode: bool,
+) {
     let doc = doc!(cx.editor);
     let alphabet = &cx.editor.config().jump_label_alphabet;
     if labels.is_empty() {
@@ -7327,15 +7342,18 @@ fn jump_to_label(cx: &mut Context, labels: Vec<Range>, behaviour: Movement) {
                 } else {
                     range.with_direction(Direction::Forward)
                 };
-                let (view, doc) = current!(cx.editor);
-                push_jump(view, doc);
-                doc.set_selection(view_id, range.into());
+                doc_mut!(cx.editor, &doc).set_selection(view_id, range.into());
+
+                if enter_select_mode {
+                    cx.editor.mode = Mode::Select;
+                    cx.editor.evil_select_mode = EvilSelectMode::CharacterWise;
+                }
             }
         });
     });
 }
 
-fn jump_to_word(cx: &mut Context, behaviour: Movement) {
+fn jump_to_word(cx: &mut Context, behaviour: Movement, enter_select_mode: bool) {
     // Calculate the jump candidates: ranges for any visible words with two or
     // more characters.
     let alphabet = &cx.editor.config().jump_label_alphabet;
@@ -7430,7 +7448,7 @@ fn jump_to_word(cx: &mut Context, behaviour: Movement) {
             break;
         }
     }
-    jump_to_label(cx, words, behaviour)
+    jump_to_label(cx, words, behaviour, enter_select_mode)
 }
 
 fn evil_move_word_impl<F>(cx: &mut Context, move_fn: F)
