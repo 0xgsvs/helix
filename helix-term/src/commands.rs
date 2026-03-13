@@ -3186,7 +3186,7 @@ fn shrink_to_line_bounds(cx: &mut Context) {
     );
 }
 
-enum Operation {
+pub enum Operation {
     Delete,
     Change,
 }
